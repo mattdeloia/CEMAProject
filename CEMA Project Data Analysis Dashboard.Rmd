@@ -1,0 +1,330 @@
+---
+title: "CEMA Project Year 1 Data Review"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(foreign)
+library(ggpubr)
+library(readxl)
+library(forcats)
+library(highcharter)
+library(DT)
+options(digits = 2)
+library(tidyverse)
+library(ggpubr)
+library(tidyverse)
+library(dplyr)
+library(plotly)
+library(corrplot)
+library(futile.matrix)
+library(RColorBrewer)
+library(cluster)
+library(factoextra)
+library(randomForest)
+library(corrr)
+library(ggcorrplot)
+library(mlbench)
+library(caret)
+library(stringi)
+library(stringr)
+library(rgr)
+library(plotly)
+library(Rmisc)
+library(Hmisc)
+
+#load data
+df_interestweightings <- read.csv("InterestCategoryWeightings.csv")
+df_Weights <- read.csv("All_Value_Weights.csv")
+
+df <- read.spss("CEMA Combined Data Set 16Sep19.sav", use.value.label=TRUE, to.data.frame=TRUE)
+id <- rownames(df)
+df <- cbind(id=id, df) 
+
+#Tidy data and align to four groups
+df$Group<-  gsub("RMIB non-CEMA","RMIB", df$Group, fixed=TRUE)
+df$Group<-  gsub("CEMA","RMIB CEMA", df$Group, fixed=TRUE)
+df$Group<-  gsub("Cyber_Operators","Cyber Pro", df$Group, fixed=TRUE)
+df$Group<-replace_na(df$Group, "Not Assigned")
+df<-df %>% filter(Group!="Not Assigned")
+#df_pscore<-df %>% filter(Group %in% c("Cyber Pro", "RASP")) %>% dplyr::select (Group, `Electronics_GGUM`)
+#df_pscore<-na.omit(df_pscore)
+#PowerTest<-df_pscore %>% filter(Group=="Cyber Pro") %>% summarise(mean=sd(Electronics_GGUM))
+
+df1<-df%>%mutate(ISCTRating=ifelse(ISCTtotraw>=25, "1Q",  ifelse(ISCTtotraw>=23, "2Q",ifelse(ISCTtotraw>=21, "3Q", ifelse(ISCTtotraw>=14, "4Q", "<4Q")))),
+GTRating=ifelse(GTSCORE>=131, "1Q", ifelse(GTSCORE>=124, "2Q", ifelse(GTSCORE>=119, "3Q", "4Q"))), CRTRating=ifelse(CRT_total>=4, "Analytical", "Intuitive"))
+
+#Interest Data
+df_AVID <- df1 %>%gather(`Combat_GGUM`:`Writing_GGUM`, key="Interest", value="Score")
+df_AVID2<- df_AVID %>% separate(col = `Interest`, into=c("Interest"), sep = "_", remove="TRUE")
+
+#Personality dataframes
+df_Personality <-df1 %>% dplyr::select(`id`:`ISCTtotraw`,`ISCTRating`,`GTRating`, `Openness_score_D5`, `Conscientiousness_score_D5`, `DepthOfThought_score_D5`, `Persistence_Goalsetting_score_D5`, `Selfregulation_Locomotion_score_D5`, `Adaptability_score_D5`, `ImpressionManagement_SelfDeception_D5`)
+
+df_Personality2 <-df_Personality %>% 
+  gather(`Openness_score_D5`:`ImpressionManagement_SelfDeception_D5`,key="Personality", value="Score") %>%  separate(col=`Personality`, into=c("Personality"), sep="_", remove="TRUE")
+
+df_Personality3 <- df_Personality2 %>% mutate(`Score_Normalized`=   ifelse(`Personality`=="Openness", Score/35, 
+ifelse (`Personality`=="Adaptability", Score/73, ifelse(`Personality`=="Conscientiousness", Score/50, ifelse(`Personality`=="DepthOfThought", Score/40, ifelse(`Personality`=="ImpressionManagement", Score/100, ifelse(`Personality`=="Selfregulation", Score/40, ifelse(`Personality`=="Persistence", Score/25, NA))))))))
+
+df_Personality3$Personality<- factor(df_Personality3$Personality, levels=c("DepthOfThought", "Conscientiousness", "Openness", "Selfregulation","Adaptability", "ImpressionManagement" ,"Persistence"))
+
+###  Creates Benchmark based on Cyber Workforce Cohort
+df2 <- df_AVID2 %>% filter (Score !="NA") %>% spread(key=`Interest`, value=`Score`)
+df2b<-df_Personality2%>% filter (Score !="NA")%>%spread(key=`Personality`, value=`Score`)
+
+
+#Benchmarked of Cyber Pros (based on density clustering)
+df_IBench <- df2 %>% filter(Group=="Cyber Pro", ISCTRating!="<4Q",  GTSCORE>109, id %nin% c("291", "299", "304", "307", "308", "330", "337", "341", "343", "354", "359", "360", "370", "374", "375", "384", "325", "346")) %>% summarise("Combat" = mean(`Combat`),"Construction" = mean(`Construction`), "Electronics" = mean(`Electronics`),"Food" = mean(`Food`),"Human" = mean(`Human`), "Information" = mean(`Information`),"Leadership" = mean(`Leadership`), "Mathematics" = mean(`Mathematics`),"Mechanical" = mean(`Mechanical`),"Medical"=mean(`Medical`), "Office" = mean(`Office`), "Outdoor" = mean(`Outdoor`), "Physical"=mean(`Physical`), "Protection" = mean(`Protection`), "Teaching" = mean(`Teaching`), "Writing"=mean(`Writing`)) 
+
+df_IntRGE <- df2  %>%   filter(Group=="Cyber Pro", ISCTRating!="<4Q",  GTSCORE>109, id %nin% c("291", "299", "304", "307", "308", "330", "337", "341", "343", "354", "359", "360", "370", "374", "375", "384", "325", "346")) %>% summarise ("CombatRGE" = 4*sd(`Combat`), "ConstructionRGE" = 4*sd(`Construction`), "ElectronicsRGE" = 4*sd(`Electronics`),"FoodRGE" = 4*sd(`Food`),"HumanRGE" = 4*sd(`Human`), "InformationRGE" = 4*sd(`Information`),"LeadershipRGE" = 4*sd(`Leadership`), "MathematicsRGE" = 4*sd(`Mathematics`),"MechanicalRGE" = 4*sd(`Mechanical`),"MedicalRGE"=4*sd(`Medical`), "OfficeRGE" = 4*sd(`Office`), "OutdoorRGE" = 4*sd(`Outdoor`), "PhysicalRGE"=4*sd(`Physical`), "ProtectionRGE" = 4*sd(`Protection`), "TeachingRGE" = 4*sd(`Teaching`), "WritingRGE"=4*sd(`Writing`)) 
+
+df_PBench<-df2b %>% filter(Group=="Cyber Pro", ISCTRating!="<4Q",  GTSCORE>109, id %nin% c("291", "299", "304", "307", "308", "330", "337", "341", "343", "354", "359", "360", "370", "374", "375", "384", "325", "346")) %>%   summarise ("Adaptability" = mean(`Adaptability`), "Consientiousness" = mean(`Conscientiousness`), "DepthOfThought" = mean(`DepthOfThought`), "ImpressionManagement" = mean(`ImpressionManagement`), "Openness" = mean(`Openness`), "Selfregulation" = mean(`Selfregulation`), "Persistence"=mean(`Persistence`))
+
+df_PRGE <- df2b %>% filter(Group=="Cyber Pro", ISCTRating!="<4Q",  GTSCORE>109, id %nin% c("291", "299", "304", "307", "308", "330", "337", "341", "343", "354", "359", "360", "370", "374", "375", "384", "325", "346")) %>% summarise ("AdaptabilityRGE" = 4*sd(Adaptability), "ConsientiousnessRGE" = 4*sd(Conscientiousness), "DepthOfThoughtRGE" = 4*sd(DepthOfThought), "ImpressionManagementRGE" = 4*sd(ImpressionManagement), "OpennessRGE" = 4*sd(Openness), "SelfregulationRGE" = 4*sd(Selfregulation), "PersistenceRGE"=4*sd(Persistence))
+
+df_Interest_Score<- df2 %>%
+  mutate ("Interest_Score"= ((
+    .08*(1-(abs(`Combat`-df_IBench$Combat)/df_IntRGE$CombatRGE)) +
+    0*(1-(abs(`Construction`-df_IBench$Construction)/df_IntRGE$ConstructionRGE)) +
+    .18*(1-(abs(`Electronics`-df_IBench$Electronics)/df_IntRGE$ElectronicsRGE)) +
+    0*(1-(abs(`Food`-df_IBench$Food)/df_IntRGE$FoodRGE)) +
+    0*(1-(abs(`Human`-df_IBench$Human)/df_IntRGE$HumanRGE)) +
+    .20*(1-(abs(`Information`-df_IBench$Information)/df_IntRGE$InformationRGE)) +
+    .04*(1-(abs(`Leadership`- df_IBench$Leadership)/df_IntRGE$LeadershipRGE)) +
+    .14*(1-(abs(`Mathematics`-df_IBench$Mathematics)/df_IntRGE$MathematicsRGE)) +
+    0*(1-(abs(`Mechanical`-df_IBench$Mechanical)/df_IntRGE$MechanicalRGE)) +
+    .04*(1-(abs(`Medical`- df_IBench$Medical)/df_IntRGE$MedicalRGE)) +
+    .10*(1-(abs(`Office`-df_IBench$Office)/df_IntRGE$OfficeRGE)) +
+    0*(1-(abs(`Outdoor`- df_IBench$Outdoor)/df_IntRGE$OutdoorRGE)) +
+    .12*(1-(abs(`Physical`- df_IBench$Physical)/df_IntRGE$PhysicalRGE)) +
+    .10*(1-(abs(`Protection`- df_IBench$Protection)/df_IntRGE$ProtectionRGE)) +
+    0*(1-(abs(`Teaching`-df_IBench$Teaching)/df_IntRGE$TeachingRGE)) +
+    0*(1-(abs(`Writing`- df_IBench$Writing)/df_IntRGE$WritingRGE))
+    )  ))
+
+df_Personality_Score <- df2b %>% 
+  mutate ("Personality_Score" = ((
+  10*(1-(abs(`Adaptability`- df_PBench$Adaptability)/df_PRGE$AdaptabilityRGE)) +
+  2.5*(1-(abs(`Conscientiousness`- df_PBench$Consientiousness)/df_PRGE$ConsientiousnessRGE)) +
+  10*(1-(abs(`DepthOfThought`- df_PBench$DepthOfThought)/df_PRGE$DepthOfThoughtRGE)) +
+ 7.5* (1-(abs(`ImpressionManagement`- df_PBench$ImpressionManagement)/df_PRGE$ImpressionManagementRGE)) +
+  1*(1-(abs(`Openness`- df_PBench$Openness)/df_PRGE$OpennessRGE)) +
+  5*(1-(abs(`Selfregulation`- df_PBench$Selfregulation)/df_PRGE$SelfregulationRGE)) +
+  2.5*(1-(abs(`Persistence`- df_PBench$Persistence)/df_PRGE$PersistenceRGE))) /38.5) )
+
+df_AllScores <- df_Interest_Score %>% left_join(df_Personality_Score, by="id", all="TRUE") 
+
+df_AllScores2 <- df_AllScores %>% separate(col = Q3_13.Enteryour3digitMOSindicator, into = ("MOS_Series"), sep=2, remove="TRUE") %>% dplyr::select (id, Group.x, `MOS_Series`, Interest_Score, Personality_Score) %>%  gather(Interest_Score:Personality_Score, key=Category, value=Score)
+
+```
+
+Column {.tabset .tabset-fade data-width=600}
+-----------------------------------------------------------------------
+
+### APFT Scores
+
+```{r}
+df%>%filter(Q4_14.WhatwasyourlastArmyPhysicalFitnessTestAPFTscore>200, Group!="Not Assigned")%>%ggplot()+geom_boxplot(aes(x=Group, y=Q4_14.WhatwasyourlastArmyPhysicalFitnessTestAPFTscore, fill=Group))+
+  stat_summary (aes(x=Group, y=Q4_14.WhatwasyourlastArmyPhysicalFitnessTestAPFTscore,label=round(..y..,2)), fun.y = "median", geom="text", size=3, color="red", vjust=-.2) +ylab("APFT Score") +ggtitle("Boxplot: APFT Scores by Group") +scale_fill_manual(values=c("green","gray", "white", "white")) + theme(legend.title=element_text(color="gray", size=10), legend.position="top") + geom_hline(aes(yintercept =270), color="red", size=1) +geom_text(aes(x=0, y=270, label=("APFT 270"), hjust=0, vjust=-.5), size=4)
+```
+
+### GT Raw Scores
+```{r}
+df %>% ggplot()+geom_boxplot(aes(x=Group, y=GTSCORE, fill=Group)) +
+  stat_summary (aes(x=Group, y=GTSCORE,label=round(..y..,2)), fun.y = "median", geom="text", size=3, color="red", vjust=-.0)+ylab("GT Score")+ ggtitle ("Boxplot: GT Score by Group")+scale_fill_manual(values=c("green","gray", "white", "white")) + theme(legend.title=element_text(color="gray", size=10), legend.position="top") + geom_hline(aes(yintercept =109), color="red", size=1) + geom_text(aes(x=0, y=109, label=("GT Minimum for Cyber MOS"), hjust=0, vjust=-.5), size=4)
+```
+
+### Creativity Scores
+
+```{r}
+df %>% ggplot()+geom_boxplot(aes(x=Group, y=Total_CREATIVITY, fill=Group)) +
+  stat_summary (aes(x=Group, y=Total_CREATIVITY,label=round(..y..,2)), fun.y = "median", geom="text", size=3, color="red", vjust=-.0)+ylab("Creativity Total Score")+ ggtitle ("Boxplot: Creativity Score by Group")+scale_fill_manual(values=c("green","gray", "white", "white")) + theme(legend.title=element_text(color="gray", size=10), legend.position="top")
+```
+
+### Systems Thinking Scores
+
+```{r}
+df %>% ggplot()+geom_boxplot(aes(x=Group, y=STTrials, fill=Group)) +
+  stat_summary (aes(x=Group, y=STTrials,label=round(..y..,2)), fun.y = "median", geom="text", size=3, color="red", vjust=-.0)+ylab("Systems Thinking Test Total Score")+ ggtitle ("Boxplot: ST Score by Group")+scale_fill_manual(values=c("green","gray", "white", "white")) + theme(legend.title=element_text(color="gray", size=10), legend.position="top")
+```
+
+### ST Raw Scores II
+
+```{r}
+df$STTrials <-as.numeric(df$STTrials)
+df %>% filter(Group %in% c("Cyber Pro", "RASP")) %>% ggplot() + geom_density(aes(x=STTrials, fill=Group, color=Group), alpha=.75 ) + xlab("ST Score")+ggtitle("Density Plot: ST Raw Scores")+ scale_color_manual(values=c("green","black"))+scale_fill_manual(values=c("green","gray")) + theme(legend.title=element_text(color="gray", size=10), legend.position="top") + ggsave("ST Results.jpg", width=3.5, height= 3, units= "in")
+```
+
+### GT Raw Scores II
+
+```{r}
+df%>%filter(Group %in% c("Cyber Pro", "RASP")) %>% ggplot() + geom_density(aes(x=GTSCORE, fill=Group, color=Group), alpha=.75 ) + geom_vline(aes(xintercept =109), color="red", size=1) + xlab("GT Score")+ggtitle("Density Plot: GT Raw Scores")+ scale_color_manual(values=c("green","black"))+scale_fill_manual(values=c("green","gray")) + theme(legend.title=element_text(color="gray", size=10), legend.position="top") +  geom_text(aes(x=109, y=0, label=("GT Minimum for Cyber MOS"), hjust=0, vjust=-.5), size=4)+ggsave("GT Results.jpg", width=3.5, height= 3, units= "in")
+```
+
+### Cognitive Reflection Test
+
+```{r}
+df_Interest_Score %>% filter(Group %in% c("Cyber Pro", "RASP")) %>% ggplot() + geom_density(aes(x=CRT_total, fill=Group, color=Group), alpha=0.75)+xlab("CRT Total Score") +ggtitle("Density Plot: Cognitive Reflection Test Scores")+ scale_color_manual(values=c("green","black"))+scale_fill_manual(values=c("green","gray"))+ theme(legend.title=element_text(color="gray", size=10), legend.position="top") + ggsave("CRT Results.jpg", width=3.5, height= 3, units= "in")
+```
+
+### ISCT Scores I (RASP vs. Cyber Pro)
+
+```{r}
+df%>%filter(Group %in% c("Cyber Pro", "RASP")) %>% ggplot() + geom_density(aes(x=ISCTtotraw, fill=Group, color=Group), alpha=.75)+xlab("ISCT Raw Score")+ggtitle("Density Plot: ISCT Scores") + scale_color_manual(values=c("green","black"))+scale_fill_manual(values=c("green","gray"))+ theme(legend.title=element_text(color="gray", size=10), legend.position="top") +  ggsave("ISCT Results.jpg", width=3.5, height= 3, units= "in")
+```
+
+### Interest Results
+
+```{r}
+df_AVID2$Interest <- factor(df_AVID2$Interest, levels=c("Information", "Electronics", "Mathematics", "Office", "Teaching", "Food","Mechanical","Writing", "Construction", "Human", "Outdoor","Protection",  "Medical","Physical","Leadership", "Combat"))
+
+df_AVID2 %>% filter (Group %in% c("Cyber Pro", "RASP"))  %>% ggplot() + geom_boxplot(aes(Interest, Score,fill=Group))+ ggtitle("Boxplot: Interest Scores (Cyber Pro Benchmark)") + theme(legend.title=element_text(color="gray", size=10), legend.position="top") + theme (axis.text.x = element_text(angle=20, size=8))+scale_fill_manual(name="Cohort", values = c("green", "gray"))
+```
+
+### Cyber Pro Cluster Analysis (Interests)
+
+```{r}
+
+ 
+```
+
+
+
+### Interest Category Weights
+
+```{r}
+
+df_interestweightings %>% mutate(`Category` =reorder(`Category`, `Raw.Weight`, FUN=max)) %>% ggplot() + geom_col (aes(x=Category, y=Global.Weight), color="blue", fill="lightblue") +ggtitle("Column Plot: Interest Category Weights") + theme(legend.title=element_text(color="gray", size=10), legend.position="top") + theme (axis.text.x = element_text(angle=20, size=8)) + stat_summary (aes(x=Category, y=Global.Weight,label=round(..y..,2)), fun.y = "sum", geom="text", size=3, color="blue", vjust=-.2) + ggsave("Interest Category Weighting.jpg", width=5.5, height= 4.5, units= "in")
+```
+
+### Personality Results
+
+```{r}
+df_Personality3 %>% filter (Group %in% c("Cyber Pro", "RASP"))  %>% ggplot() + geom_boxplot(aes(Personality, Score_Normalized,fill=Group))+ ggtitle("Boxplot: Personality Results") + theme(legend.title=element_text(color="gray", size=10), legend.position="top")+ theme (axis.text.x = element_text(angle=10, size=10))+scale_fill_manual(name="Cohort", values = c("green", "gray"))+theme(legend.title=element_text(color="gray", size=10), legend.position="top") + ylab ("Score (Normalized)") +ggsave("Personality Boxplot.jpg", width=5.5, height= 4.5, units= "in")
+```
+
+
+### Personality and Interest Scores
+
+```{r}
+df_AllScores2  %>%  filter(Group.x %in% c("Cyber Pro", "RASP")) %>% ggplot()+ geom_boxplot(aes(x=Group.x, y=Score, fill=Group.x))  +ylim(0.5,1) + ggtitle ("Cyber Personality and Interest Scores")+ylab("Score (% of Objective)")+ scale_fill_manual(name="Cohort", values = c("green", "gray")) + xlab("Cohort")+ stat_summary (aes(x=Group.x, y= Score, label=round(..y..,2)), fun.y = "median", geom="text", size=3, color="red", vjust=-.2) + facet_grid(.~Category)  + theme(legend.title=element_text(color="gray", size=10), legend.position="top") + ggsave("Personality Boxplot.jpg", width=5.5, height= 4.5, units= "in") + ggsave("Personality and Interest Boxplot.jpg", width=5.5, height= 4.5, units= "in")
+```
+
+### All Value Functions Weights
+
+```{r}
+df_Weights %>% mutate(`Measure` = reorder(`Measure`, `Global_Weight`, FUN=max)) %>% ggplot() + geom_col (aes(x=Measure, y=Global_Weight, fill=Category)) + ggtitle("Column Plot: Global Weights of Value Functions") + theme(legend.title=element_text(color="gray", size=10), legend.position="top") + theme (axis.text.x = element_text(angle=20, size=8)) + stat_summary (aes(x=Measure, y=Global_Weight,label=round(..y..,2)), fun.y = "sum", geom="text", size=3, color="blue", vjust=-.0) + scale_fill_manual(name="Cohort", values = c("green", "lightgreen", "lightblue", "gray")) +coord_flip()+ ggsave("All Weights.jpg", width=8, height= 7, units= "in")
+```
+
+
+### Cyber Fit Density Plot
+
+```{r}
+df10 <- df_AllScores %>% mutate("Cyber_Fit"=(.40*Interest_Score  + .21*(GTSCORE.x/125) + .10*Personality_Score +.15*(ISCTtotraw.x/23) + .07*( CRT_total/7) + .07*(STTrials/4))) %>% dplyr::rename(`Group`=`Group.x`,`ST_Total`=`STTrials`, `GT_Score`=`GTSCORE.x`, `ISCT_Score`=`ISCTtotraw.x`, `MOS`=`Q3_13.Enteryour3digitMOSindicator`, `APFT`=`Q4_14.WhatwasyourlastArmyPhysicalFitnessTestAPFTscore`, `Degree` =`Q77.DoyouhaveanAssociateBachelororMaster.slevelcollegedegree`,`Academic_Field`=`Q8_18.MajorQuestionPleaselistdegreemajors`)
+
+df10x <- df10[!(is.na(df10$Cyber_Fit)),]
+CyberFit_mean2<-df10x %>% filter(Group=="Cyber Pro") %>% summarise(mean(Cyber_Fit))
+CyberFit_mean <- CyberFit_mean2$`mean(Cyber_Fit)`
+CyberFit_sd4<-df10x %>% filter(Group=="Cyber Pro")%>%summarise(sd(Cyber_Fit))
+CyberFit_sd <- CyberFit_sd4$`sd(Cyber_Fit)`
+CyberFit_sd2<-CyberFit_mean-CyberFit_sd
+CyberFit_sd3<-CyberFit_mean-2*CyberFit_sd
+
+df10x$Group<- factor(df10x$Group, levels=c("Cyber Pro", "RMIB CEMA", "RASP"))
+
+df10x %>% filter (Group!="RMIB") %>% ggplot()+geom_density(aes(x = Cyber_Fit, fill=Group), alpha=.75) + 
+  geom_vline(aes(xintercept = CyberFit_sd3), color="red")+
+  geom_vline(aes(xintercept = CyberFit_sd2), color="green") +
+  geom_vline(aes(xintercept = CyberFit_mean), color="blue")+ 
+  geom_text(aes(x = CyberFit_sd3, y=0, label=("2sd"), hjust=0, vjust=-1), size=4)+
+  geom_text(aes(x = CyberFit_sd2, y=0, label=("1sd"), hjust=0, vjust=-1), size=4)+
+    geom_text(aes(x = CyberFit_mean, y=0, label=("Cyber mean"), hjust=0, vjust=-1), size=4)+
+  ggtitle("Density Plot: Cyber Fit Scores") + xlab("Cyber Fit Score") +
+  scale_fill_manual(name="Cohort", values = c("green", "orange", "gray")) + theme(legend.title=element_text(color="gray", size=10), legend.position="top") + xlim(.5,1) +ggsave("Cyber Fit Density Plot.jpg", width=8.5, height= 7, units= "in")
+```
+
+### RASP Cyber Fit Table
+
+```{r}
+df11<- df10 %>% filter (Group =="RASP") %>% dplyr::select (id, Group, MOS, `Cyber_Fit`, Interest_Score,  GT_Score, Personality_Score, ISCT_Score, CRT_total, ST_Total, APFT, Degree, Academic_Field) %>% mutate_if(is.numeric, round, digits=2)
+
+df11$Degree<-  gsub("yes","Higher Degree", df11$Degree, fixed=TRUE)
+df11$Degree<-  gsub("no","Sec. Education", df11$Degree, fixed=TRUE)
+
+datatable (df11, rownames=FALSE, options=list(pageLength=45)) %>% 
+  formatStyle('Cyber_Fit', 
+  backgroundSize = '100% 90%', 
+  backgroundRepeat='no-repeat', 
+  backgroundPosition = 'center')%>%
+  formatStyle('GT_Score', color = styleInterval (c(108, 115), c("red", "black", "green"))) %>%
+  formatStyle ('Interest_Score', color = styleInterval(.76, c("black", "green"))) %>%
+  formatStyle ('ST_Total', color = styleInterval(3, c("black", "green"))) %>%
+  formatStyle ('Personality_Score', color = styleInterval(.73, c("black", "green"))) %>%
+  formatStyle ('CRT_total', color = styleInterval(3, c("black", "green"))) %>%
+  formatStyle ('GT_Score', backgroundColor = styleEqual (0 , "yellow")) %>%
+  formatStyle ('Personality_Score', backgroundColor = styleEqual (.5 , "yellow")) %>%
+  formatStyle ('ISCT_Score', backgroundColor = styleEqual (0 , "yellow")) %>%
+formatStyle ('Cyber_Fit', color = styleInterval( c(CyberFit_sd3, CyberFit_sd2), c("red", "black", "green")))
+#  formatStyle ('ST_Total', backgroundColor = styleEqual (NA , "yellow")) %>%
+```
+
+### RASP Scatter Plot (GT Score vs. Interest Score)
+
+```{r}
+p<- plot_ly(df11, y = ~Interest_Score, x = ~GT_Score, size = ~ISCT_Score, symbol = ~Degree, symbols = c("circle", "circle"), text = ~ paste(id, Group, Academic_Field)) %>% layout(title="Scatter Plot of GT Scores versus CEMA Interest Score")
+p
+```
+
+### RASP Cyber Fit by MOS
+
+```{r}
+#df_PI$MOS_Series<-as.factor(df_PI$MOS_Series) 
+df11 %>% separate(col = MOS, into = ("MOS_Series"), sep=2, remove="TRUE") %>% filter(`MOS_Series` %in% c("11","17", "13", "35", "25"), GT_Score>0, Personality_Score>.4) %>% ggplot() + geom_boxplot(aes(x = MOS_Series, y = Cyber_Fit)) + ggtitle("Boxplot: RASP Cyber Fit by MOS") + stat_summary (aes(x=MOS_Series, y=Cyber_Fit, label=round(..y..,2)), fun.y = "median", geom="text", size=3, color="red", vjust=-.2) + xlab("MOS Series") + ylab("Cyber Fit Score")
+```
+
+### Interest Category Scatter Plot (Importance vs. Variability)
+
+```{r}
+q<- plot_ly(df_interestweightings, y = ~Variability, x = ~Importance, size = ~Raw.Weight,  text = ~ paste(Category, Raw.Weight))%>% layout(title="Scatter Plot: Interest Category Importance vs. Variabilty")
+q
+```
+
+### Correlation of AVID Categories
+
+```{r}
+dfcluster_All<- df_Interest_Score  %>% dplyr::select(id, Combat, Construction, Electronics, Food, Human, Information, Leadership, Mathematics, Mechanical, Medical, Office, Outdoor, Physical, Protection, Teaching, Writing)
+dfcluster_All<-data.frame(dfcluster_All, row.names=1)
+
+corrplot(cor(dfcluster_All), method="color", order="hclust", type="full", addrect=5, cl.lim=c(-1,1), addCoef.col="black", rect.col="green", diag = FALSE, number.font=1, number.digits = 1, number.cex = .7)
+```
+
+### Cognitive Reflection Test II
+
+```{r}
+df_Interest_Score$CRT_total<-as.factor(df_Interest_Score$CRT_total)
+df_Interest_Score  %>%filter(CRTRating!="NA") %>% 
+  ggplot() + geom_boxplot(aes(x=CRT_total, y=GTSCORE))+ ggtitle("Boxplot: Cognitive Reflection Test and GT Scores")+ geom_jitter(aes(x=CRT_total, y=GTSCORE), color="darkgray")+stat_summary (aes(x=CRT_total, y= GTSCORE,label=round(..y..,2)), fun.y = "median", geom="text", size=3, color="red", vjust=-.2)+xlab("CRT Total Score") +ylab("GT Score")
+```
+
+### Cyber Fit and Performance Data
+
+```{r}
+df10%>%ggplot()+geom_boxplot(aes(x=Group, y=Cyber_Fit))+
+  stat_summary (aes(x=Group, y=Cyber_Fit,label=round(..y..,2)), fun.y = "median", geom="text", size=3, color="red", vjust=-.0)+geom_jitter(aes(x=Group, y=Cyber_Fit, color=CEMAoverallperformance_corrected.x))+scale_color_manual(name="Performance Rating", values = c("red", "red", "gray", "blue", "green", "green")) +ylab ("CEMA Fit Score") +ggtitle("Boxplot: CEMA Fit and Performance Ratings")
+```
+
+```{r}
+df10%>% filter (CEMAoverallperformance_corrected.x != "NA") %>% ggplot()+geom_boxplot(aes(x=CEMAoverallperformance_corrected.x, y=Cyber_Fit))+
+  stat_summary (aes(x=CEMAoverallperformance_corrected.x, y=Cyber_Fit,label=round(..y..,2)), fun.y = "median", geom="text", size=3, color="red", vjust=-.2)+geom_jitter(aes(x=CEMAoverallperformance_corrected.x, y=Cyber_Fit, color=Group), size=2)+scale_color_manual(name="Group", values = c("green", "blue")) +ylab ("Cyber Fit Score") + xlab ("Performance Rating") + ggtitle("Boxplot: Cyber Fit and Performance Ratings (Corrected)") + ggsave("Performance Rating Box Plot.jpg", width=11, height= 8.5, units= "in")
+```
+
+```{r}
+df10%>% filter (CEMAoverallperformance_corrected.x != "NA") %>% ggplot()+geom_boxplot(aes(x=CEMAoverallperformance_corrected.x, y=ISCT_Score))+
+  stat_summary (aes(x=CEMAoverallperformance_corrected.x, y=ISCT_Score,label=round(..y..,2)), fun.y = "median", geom="text", size=3, color="red", vjust=-.2)+geom_jitter(aes(x=CEMAoverallperformance_corrected.x, y=ISCT_Score, color=Group), size=2)+scale_color_manual(name="Group", values = c("green", "blue")) +ylab ("ISCT Score") + xlab ("Performance Rating") + ggtitle("Boxplot: ISCT Scores and Performance Ratings (Corrected)") +  theme(legend.title=element_text(color="gray", size=10), legend.position="top") + facet_grid(.~Group) + ggsave("Performance Rating Box Plot2.jpg", width=11, height= 8.5, units= "in")
+```
