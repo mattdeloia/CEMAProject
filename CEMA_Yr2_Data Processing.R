@@ -4,12 +4,17 @@ library(readxl)
 library(corrplot)
 library(superheat)
 library(visdat)
+library(rstatix)
 
 #Read files and Reverse Score items
-df <- read_xlsx("CEMA_Year2_Data_DeID_Master_13Jan22.xlsx") %>% 
+df <- read_xlsx("CEMA_Year2_Data_DeID_Master_26Jan22.xlsx") %>% 
   clean_names() %>% 
-  mutate_at(vars(mslq33, mslq57, mslq52, mslq80, mslq37, mslq60, mslq40), ~(8-.x)) %>% 
-  mutate_at(vars(mos_transfer, college_degree, advanced_degree, experience), tolower)#reverse score select items
+  mutate_at(vars(mslq33, mslq57, mslq52, mslq77, mslq80, mslq37, mslq60, mslq40), ~(8-.x)) %>% #reverse score select items
+  mutate_at(vars(mos_transfer, college_degree, advanced_degree, experience), tolower) %>% 
+  mutate(part_id = as.character(part_id)) %>% 
+  mutate_at(vars(mos_transfer, college_degree, advanced_degree, experience), ~if_else(.x=="yes", 1, 0)) %>% 
+  mutate_at(vars(college_years, experience_years, experience, mos_transfer, college_degree, advanced_degree, experience), ~replace_na(.x, 0)) %>% 
+  select(part_id, rank:cert5, everything(), -c(x98:x103))
 
 vis_dat(df)
 
@@ -19,7 +24,7 @@ df_score <- df %>%
   mutate(Intrinsic_Goal_Orientation = mean(c(mslq1, mslq16, mslq22, mslq24), na.rm = TRUE), #facet/scale scores
          Extrinsic_Goal_Orientation = mean(c(mslq7, mslq11, mslq13, mslq30), na.rm = TRUE),
          Task_Value = mean(c(mslq4, mslq10, mslq17, mslq23, mslq26, mslq27), na.rm = TRUE),
-         Control_of_Learning = mean(c(mslq2, mslq9, mslq18, mslq25), na.rm = TRUE),
+         Control_Beliefs_about_Learning = mean(c(mslq2, mslq9, mslq18, mslq25), na.rm = TRUE),
          Selfefficacy_for_Learning_and_Performance = mean(c(mslq5, mslq6, mslq12, mslq15, mslq20, mslq21, mslq29, mslq31), na.rm = TRUE),
          Test_Anxiety = mean(c(mslq3, mslq8, mslq14, mslq19, mslq28), na.rm = TRUE),
          Rehearsal = mean(c(mslq39, mslq46, mslq59, mslq72), na.rm = TRUE),
@@ -32,58 +37,77 @@ df_score <- df %>%
          Peer_Learning = mean(c(mslq34, mslq45, mslq50), na.rm = TRUE),
          Help_Seeking = mean(c(mslq40, mslq58, mslq68, mslq75), na.rm = TRUE)
          ) %>% 
-    left_join(
-      df %>%   
-        select(part_id, mslq1:mslq31) %>% #category score for motivation
-        gather(mslq1:mslq31, key=question, value=score) %>% 
-        group_by(part_id) %>% 
-        summarise(Motivation = mean(score, na.rm = TRUE))
-    ) %>% 
-    left_join(
-      df %>%   
-        select(part_id, mslq32:mslq81) %>% #category score for learning strategy
-        gather(mslq32:mslq81, key=question, value=score) %>% 
-        group_by(part_id) %>% 
-        summarise(Learning_Strategy = mean(score, na.rm = TRUE))
-    )
+  ungroup()
 
+write_rds(df_score, "MSLQ_scored.rds")
+
+#Results table
+df_score %>% 
+  gather(Intrinsic_Goal_Orientation:Help_Seeking, key=measure, value=score) %>% 
+  group_by(measure) %>% 
+  summarise(mean = round(mean(score, na.rm = TRUE), 2), sd = round(sd(score, na.rm = TRUE), 2)) %>%  
+  write_rds("scale_results.rds")
+
+#Comparison of MOS transfers versus others
+
+df_score %>% 
+  gather(Intrinsic_Goal_Orientation:Help_Seeking, key=measure, value=score) %>% 
+  group_by(measure, mos_transfer) %>% 
+  summarise(mean = round(mean(score, na.rm = TRUE), 2), sd = round(sd(score, na.rm = TRUE), 2)) 
+
+student_ttest <- df_score %>% 
+  gather(Intrinsic_Goal_Orientation:Help_Seeking, key=measure, value=score) %>% 
+   group_by(measure) %>% 
+   t_test(score~mos_transfer)
+
+df_score %>% 
+  gather(Intrinsic_Goal_Orientation:Help_Seeking, key=measure, value=score) %>% 
+  group_by(measure, mos_transfer) %>% 
+  summarise(mean = round(mean(score, na.rm = TRUE), 2)) %>% 
+  pivot_wider(names_from="mos_transfer", values_from = "mean") %>% 
+  left_join(student_ttest) %>% 
+  rename("yes"=`1`, "no"=`0`)
 
 df_score2 <- df_score %>% 
-  gather(Intrinsic_Goal_Orientation:Learning_Strategy, key=measure, value=score) %>% 
-  mutate(category = 
+  gather(Intrinsic_Goal_Orientation:Help_Seeking, key=measure, value=unscaled) %>% 
+  mutate(component = 
            if_else(measure %in% c("Intrinsic_Goal_Orientation", "Extrinsic_Goal_Orientation", "Task_Value"), 'Value', 
-                   if_else(measure %in% c('Control_of_Learning', 'Selfefficacy_for_Learning_and_Performance'), "Expectancy",
+                   if_else(measure %in% c('Control_Beliefs_about_Learning', 'Selfefficacy_for_Learning_and_Performance'), "Expectancy",
                            if_else(measure %in% c("Test_Anxiety"), "Affective",
                                    if_else(measure %in% c('Rehearsal', 'Elaboration', 'Organization', 'Critical_Thinking', 'Metacognitive_Selfregulation'), "Cognitive Strategies", 
                                            if_else(measure %in% c('Time_Study_Environment', 'Effort_Regulation', 'Peer_Learning', 'Help_Seeking'), "Resource Management Strategies", "overall")))))) %>%  
-  mutate(category2 = if_else(category %in% c("Value", "Expectancy", "Affective"), "Motivation", "Strategies for Learning")) %>% 
-  select(-(mslq1:mslq81))
+  mutate(category = if_else(component %in% c("Value", "Expectancy", "Affective"), "Motivation", "Strategies for Learning")) %>% 
+  ungroup() %>% 
+  left_join(
+    df_score %>% select(part_id, Intrinsic_Goal_Orientation:Help_Seeking) %>% 
+      mutate_if(is.numeric, scale) %>% 
+      gather(Intrinsic_Goal_Orientation:Help_Seeking, key=measure, value=scaled)) %>% 
+  select(-(mslq1:mslq81)) 
+  
+
+df_score2 %>% ggplot(aes(x=unscaled)) + geom_density() + facet_wrap(measure~.)
+
+write_rds(df_score2, "MSLQ_scored2.rds")
 
 #Visualization: boxplot distributions by sub-scale
-df_score2  %>% 
-  ggplot(aes(x=reorder(measure, score, fun=mean), y=score)) + 
-  geom_boxplot(aes(fill=category2)) +
+df_score2  %>% filter(method=="unscaled") %>% 
+  drop_na(score) %>% 
+  ggplot(aes(x=reorder(measure, score, FUN=median), y=score)) + 
+  geom_boxplot(aes(fill=category)) +
   coord_flip() +
   theme(legend.position = "top") +
   scale_fill_manual(name = "category", values = c("skyblue", "lightgreen")) + 
   xlab("")
 
 #Visualization: correlation plot of sub-scales
-corrplot(cor(df_score %>% ungroup %>% select(Intrinsic_Goal_Orientation:Help_Seeking)), method="color", order="hclust", type="full", addrect=5, cl.lim=c(-1,1), 
+corrplot(cor(df_score %>% ungroup %>% select(Intrinsic_Goal_Orientation:Help_Seeking) %>% drop_na()), method="color", order="hclust", type="full", addrect=5, cl.lim=c(-1,1), 
 addCoef.col="black", rect.col="green", diag=FALSE, number.digits=1, number.font=1 , number.cex=1, tl.cex=.6)
 
-#Results table
-df_score2 %>% 
-  group_by(category2, category, measure) %>% 
-  summarise(mean = round(mean(score), 2), sd = round(sd(score), 2)) %>%  
-  arrange(category2, category, -mean) %>% 
-  write.csv("scale_results.csv")
-
 #Visualization of sub-scale mean item scores and standard deviations
-df_score2 %>% 
-  group_by(category2, category, measure) %>% 
-  summarise(mean = round(mean(score), 2), sd = round(sd(score), 2)) %>% 
-  ggplot(aes(x=mean, y=sd, color=category2, label=measure)) +
+df_score2 %>% filter(method=="unscaled") %>% 
+  group_by(category, component, measure) %>% 
+  summarise(mean = round(mean(score, na.rm = TRUE), 2), sd = round(sd(score, na.rm = TRUE), 2)) %>% 
+  ggplot(aes(x=mean, y=sd, color=category, label=measure)) +
   geom_point(size = 2) +
   ggrepel::geom_text_repel(size = 3)+
   theme(legend.position = "top") 
@@ -91,7 +115,7 @@ df_score2 %>%
 #item analysis
 df_score %>% 
   gather(mslq1:mslq81, key=item, value = score) %>% 
-  mutate(reverse = if_else(item  %in% c('mslq33', 'mslq57', 'mslq52', 'mslq80', 'mslq37', 'mslq60', 'mslq40'), "yes", "no")) %>% 
+  mutate(reverse = if_else(item  %in% c('mslq33', 'mslq57', 'mslq52', 'mslq80', 'mslq37', 'mslq60', 'mslq40', 'mslq77'), "yes", "no")) %>% 
   group_by(item, reverse) %>% 
   summarise(mean = mean(score, na.rm = TRUE), sd = sd(score, na.rm = TRUE)) %>% 
   separate(item, into = c("item1", "item"), sep = "q") %>% 
@@ -165,3 +189,5 @@ heatmap_plot_t <-  df_heatmap_t %>%
             title.size = 3)
 
 ggsave("heat_3.pdf", plot = heatmap_plot_t$plot, width = 11, height = 8.5, units = "in")
+
+df %>% group_by(mos_transfer, college_degree) %>% summarise(n=n())
